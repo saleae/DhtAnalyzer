@@ -123,12 +123,12 @@ U32 DHTAnalyzer::GetMinimumSampleRateHz()
 
 const char* DHTAnalyzer::GetAnalyzerName() const
 {
-    return "DHT Sensor";
+    return "DHT22/DHT11";
 }
 
 const char* GetAnalyzerName()
 {
-    return "DHT Sensor";
+    return "DHT22/DHT11";
 }
 
 Analyzer* CreateAnalyzer()

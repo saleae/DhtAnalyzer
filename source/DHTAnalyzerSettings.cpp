@@ -19,10 +19,26 @@ double operator "" _us( unsigned long long x )
 DHTAnalyzerSettings::DHTAnalyzerSettings()
 {
     mInputChannelInterface.reset( new AnalyzerSettingInterfaceChannel() );
-    mInputChannelInterface->SetTitleAndTooltip( "DHT Channel", "DHT" );
+    mInputChannelInterface->SetTitleAndTooltip( "Data", "Data" );
     mInputChannelInterface->SetChannel( mInputChannel );
 
     AddInterface( mInputChannelInterface.get() );
+
+    mDeviceTypeInterface.reset( new AnalyzerSettingInterfaceNumberList );
+    mDeviceTypeInterface->SetTitleAndTooltip( "Device", "" );
+    mDeviceTypeInterface->AddNumber( DEVICE_DHT22, "DHT22", "");
+    mDeviceTypeInterface->AddNumber( DEVICE_DHT11, "DHT11", "" );
+    mDeviceTypeInterface->SetNumber( DEVICE_DHT22 );
+    AddInterface( mDeviceTypeInterface.get() );
+
+    mTemperatureUnitsInterface.reset( new AnalyzerSettingInterfaceNumberList );
+    mTemperatureUnitsInterface->SetTitleAndTooltip( "Temperature Units", "" );
+    mTemperatureUnitsInterface->AddNumber( UNITS_CELSIUS, "Celsius", "");
+    mTemperatureUnitsInterface->AddNumber( UNITS_FARENHEIT, "Farenheit", "");
+    mTemperatureUnitsInterface->AddNumber( UNITS_KELVIN, "Kelvin", "");
+    mTemperatureUnitsInterface->SetNumber(UNITS_CELSIUS);
+
+    AddInterface( mTemperatureUnitsInterface.get() );
 
     AddExportOption( 0, "Export as text/csv file" );
     AddExportExtension( 0, "text", "txt" );
@@ -43,12 +59,20 @@ bool DHTAnalyzerSettings::SetSettingsFromInterfaces()
     ClearChannels();
     AddChannel( mInputChannel, DEFAULT_CHANNEL_NAME, true );
 
+    int unitsInt = static_cast<int>(mTemperatureUnitsInterface->GetNumber()); // explicit for MSVC
+    mTemperatureUnits = static_cast<TemperatureUnits>(unitsInt);
+
+    int deviceInt = static_cast<int>(mDeviceTypeInterface->GetNumber()); // explicit for MSVC
+    mDeviceType = static_cast<DeviceType>(deviceInt);
+
     return true;
 }
 
 void DHTAnalyzerSettings::UpdateInterfacesFromSettings()
 {
     mInputChannelInterface->SetChannel( mInputChannel );
+    mDeviceTypeInterface->SetNumber(static_cast<int>(mDeviceType));
+    mTemperatureUnitsInterface->SetNumber(static_cast<int>(mTemperatureUnits));
 }
 
 void DHTAnalyzerSettings::LoadSettings( const char* settings )
@@ -56,7 +80,10 @@ void DHTAnalyzerSettings::LoadSettings( const char* settings )
     SimpleArchive text_archive;
     text_archive.SetString( settings );
 
-    text_archive >> mInputChannel;
+    U32 temp, device;
+    text_archive >> mInputChannel >> temp >> device;
+    mTemperatureUnits = static_cast<TemperatureUnits>(temp);
+    mDeviceType = static_cast<DeviceType>(device);
 
     ClearChannels();
     AddChannel( mInputChannel, DEFAULT_CHANNEL_NAME, true );
@@ -68,7 +95,9 @@ const char* DHTAnalyzerSettings::SaveSettings()
 {
     SimpleArchive text_archive;
 
-    text_archive << mInputChannel;
+    text_archive << mInputChannel
+                 << static_cast<U32>(mTemperatureUnits)
+                 << static_cast<U32>(mDeviceType);
 
     return SetReturnString( text_archive.GetString() );
 }
