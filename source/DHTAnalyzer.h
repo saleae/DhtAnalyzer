@@ -3,7 +3,7 @@
 
 #include <Analyzer.h>
 
-// #include "DHTSimulationDataGenerator.h"
+#include "DHTSimulationDataGenerator.h"
 
 // forward decls
 class DHTAnalyzerSettings;
@@ -29,7 +29,7 @@ class ANALYZER_EXPORT DHTAnalyzer : public Analyzer2
         std::unique_ptr< DHTAnalyzerResults > mResults;
         AnalyzerChannelData* mChannelData = nullptr;
 
-      //  DHTSimulationDataGenerator mSimulationDataGenerator;
+        DHTSimulationDataGenerator mSimulationDataGenerator;
         bool mSimulationInitialized = false;
 
     private:

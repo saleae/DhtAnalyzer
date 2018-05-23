@@ -105,7 +105,6 @@ bool DHTAnalyzer::NeedsRerun()
 
 U32 DHTAnalyzer::GenerateSimulationData( U64 minimum_sample_index, U32 device_sample_rate, SimulationChannelDescriptor** simulation_channels )
 {
-    #if 0
     if ( mSimulationInitialized == false )
     {
         mSimulationDataGenerator.Initialize( GetSimulationSampleRate(), mSettings.get() );
@@ -113,7 +112,6 @@ U32 DHTAnalyzer::GenerateSimulationData( U64 minimum_sample_index, U32 device_sa
     }
 
     return mSimulationDataGenerator.GenerateSimulationData( minimum_sample_index, device_sample_rate, simulation_channels );
-    #endif
 }
 
 U32 DHTAnalyzer::GetMinimumSampleRateHz()
