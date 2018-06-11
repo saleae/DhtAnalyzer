@@ -5,6 +5,7 @@
 #include <cassert>
 
 #include "DHTAnalyzerSettings.h"
+#include "DHTAnalyzerHelpers.h"
 
 #include <AnalyzerHelpers.h>
 
@@ -79,16 +80,6 @@ U32 DHTSimulationDataGenerator::GenerateSimulationData( U64 largest_sample_reque
     return 1;
 }
 
-U8 ComputeCheckSum(U16 temp, U16 humidity)
-{
-    U8 result = 0;
-    U8* tBytes = reinterpret_cast<U8*>(&temp);
-    U8* hBytes = reinterpret_cast<U8*>(&humidity);
-    result += tBytes[0] + tBytes[1];
-    result += hBytes[1] + hBytes[1];
-    return result;
-}
-
 void DHTSimulationDataGenerator::GeneratePacket()
 {
     // master/host side
@@ -113,6 +104,9 @@ void DHTSimulationDataGenerator::GeneratePacket()
     // write data bits
     U16 humidityData = rand() % 1000;
     U16 tempData = rand() % 500;
+
+    std::cout << "RH:" << humidityData << ", temp=" << tempData << std::endl;
+
 
     // 50% chance we make the temperature negative by setting the top bit
     if (rand() % 2) {
@@ -144,13 +138,15 @@ void DHTSimulationDataGenerator::WriteUIntData( U16 data, U8 bit_count )
     }
 }
 
-void DHTSimulationDataGenerator::WriteBit( bool b )
+void DHTSimulationDataGenerator::WriteBit( BitState b )
 {
     assert( mSimulationData.GetCurrentBitState() == BIT_HIGH );
 
     const U32 lowSamples = mClockGenerator.AdvanceByTimeS( 50_us );
-    const double highTime = (b ? 70_us : 27_us);
+    const double highTime = (b == BIT_HIGH) ? 70_us : 27_us;
     const U32 highSamples = mClockGenerator.AdvanceByTimeS( highTime );
+
+   // std::cout << "high time:" << highTime << std::endl;
 
     mSimulationData.Transition(); // go low
     mSimulationData.Advance( lowSamples );

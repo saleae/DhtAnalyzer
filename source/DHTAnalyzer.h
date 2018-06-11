@@ -33,6 +33,17 @@ class ANALYZER_EXPORT DHTAnalyzer : public Analyzer2
         bool mSimulationInitialized = false;
 
     private:
+        struct ReadResult
+        {
+            BitState bit;
+            bool valid;
+        };
+
+        void AdvanceToHostStartPulse();
+        ReadResult ReadDataBit();
+        void ReadPacket();
+
+        double mSampleRateHz = 0.0;
 
 };
 

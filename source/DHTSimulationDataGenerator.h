@@ -27,7 +27,7 @@ class DHTSimulationDataGenerator
         SimulationChannelDescriptor mSimulationData;
 
 private:
-        void WriteBit(bool b);
+        void WriteBit(BitState b);
         void WriteUIntData(U16 data, U8 bit_count);
         void GeneratePacket();
 };
