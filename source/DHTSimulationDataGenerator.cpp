@@ -8,6 +8,8 @@
 
 #include <AnalyzerHelpers.h>
 
+namespace {
+
 double operator "" _ns( unsigned long long x )
 {
     return x * 1e-9;
@@ -23,6 +25,7 @@ double operator "" _ms( unsigned long long x )
     return x * 1e-3;
 }
 
+} // of anonymous namespace
 
 DHTSimulationDataGenerator::DHTSimulationDataGenerator()
 {
@@ -34,23 +37,56 @@ DHTSimulationDataGenerator::~DHTSimulationDataGenerator()
 
 void DHTSimulationDataGenerator::Initialize( U32 simulation_sample_rate, DHTAnalyzerSettings* settings )
 {
-    mSettings = settings;
+    // Initialize the random number generator with a literal seed to obtain repeatability
+    // Change this for srand(time(NULL)) for "truly" random sequences
+    // NOTICE rand() an srand() are *not* thread safe
+    srand( 42 );
 
+    mSettings = settings;
+    mSimulationSampleRateHz = simulation_sample_rate;
+
+    const double clockFrequencyUnused = 1.0;
+    mClockGenerator.Init( clockFrequencyUnused, mSimulationSampleRateHz );
+
+    mSimulationData.SetChannel( mSettings->mInputChannel );
+    mSimulationData.SetSampleRate( simulation_sample_rate );
+    mSimulationData.SetInitialBitState( BIT_HIGH );
 }
 
-U32 DHTSimulationDataGenerator::GenerateSimulationData( U64 largest_sample_requested, U32 sample_rate, SimulationChannelDescriptor** simulation_channel )
+U32 DHTSimulationDataGenerator::GenerateSimulationData( U64 largest_sample_requested,
+                                                        U32 sample_rate,
+                                                        SimulationChannelDescriptor** simulation_channel )
 {
-    #if 0
     U64 adjusted_largest_sample_requested =
         AnalyzerHelpers::AdjustSimulationTargetSample( largest_sample_requested, sample_rate, mSimulationSampleRateHz );
 
     while ( mSimulationData.GetCurrentSampleNumber() < adjusted_largest_sample_requested )
     {
-       
+        // small dleay at the start, so we don't begin the host start pulse
+        // on sample zero.
+        const U32 startDelaySamples = mClockGenerator.AdvanceByTimeS( 10_ms );
+        mSimulationData.Advance(startDelaySamples);
+
+        GeneratePacket();
+
+        // delay time
+        // the spec PDF says 'the interval of whole process must beyond 2 seconds.'
+        const U32 delaySamples = mClockGenerator.AdvanceByTimeS( 2.0 );
+        mSimulationData.Advance(delaySamples);
     }
-#endif
+
     *simulation_channel = &mSimulationData;
     return 1;
+}
+
+U8 ComputeCheckSum(U16 temp, U16 humidity)
+{
+    U8 result = 0;
+    U8* tBytes = reinterpret_cast<U8*>(&temp);
+    U8* hBytes = reinterpret_cast<U8*>(&humidity);
+    result += tBytes[0] + tBytes[1];
+    result += hBytes[1] + hBytes[1];
+    return result;
 }
 
 void DHTSimulationDataGenerator::GeneratePacket()
@@ -75,14 +111,27 @@ void DHTSimulationDataGenerator::GeneratePacket()
     mSimulationData.Advance( sensorWaitStartSamples );
 
     // write data bits
-    WriteUIntData(0, 0);
-    WriteUIntData(0, 0);
+    U16 humidityData = rand() % 1000;
+    U16 tempData = rand() % 500;
+
+    // 50% chance we make the temperature negative by setting the top bit
+    if (rand() % 2) {
+        tempData |= 0x8000;
+    }
+
+    const U16 checkSum = ComputeCheckSum(humidityData, tempData);
+
+    WriteUIntData(humidityData, 16);
+    WriteUIntData(tempData, 16);
+    WriteUIntData(checkSum, 8);
 
     // sensor end pulse - how long?
     const U32 sensorEndSendSamples = mClockGenerator.AdvanceByTimeS( 80_us );
     mSimulationData.Transition(); // go low
     mSimulationData.Advance( sensorEndSendSamples );
     mSimulationData.Transition(); // go high
+
+    assert( mSimulationData.GetCurrentBitState() == BIT_HIGH );
 }
 
 void DHTSimulationDataGenerator::WriteUIntData( U16 data, U8 bit_count )
