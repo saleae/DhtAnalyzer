@@ -105,9 +105,6 @@ void DHTSimulationDataGenerator::GeneratePacket()
     U16 humidityData = rand() % 1000;
     U16 tempData = rand() % 500;
 
-    std::cout << "RH:" << humidityData << ", temp=" << tempData << std::endl;
-
-
     // 50% chance we make the temperature negative by setting the top bit
     if (rand() % 2) {
         tempData |= 0x8000;

@@ -57,7 +57,6 @@ void DHTAnalyzer::WorkerThread()
     {
         AdvanceToHostStartPulse();
         // channel data is now on rising edge of host request pulse
-
         ReadPacket();
     }
 
@@ -80,63 +79,61 @@ void DHTAnalyzer::AdvanceToHostStartPulse()
 
         if ((lowTimeSec > 1_ms) && (lowTimeSec < 10_ms))
         {
+            mLastHostStartPulse = lowTimeSec; // save this, for frame generation
             mChannelData->AdvanceToAbsPosition( highTransition );
-            std::cout << "found start pulse" << std::endl;
             return;
         }
 
         // advance past the rising edge, to the next falling edge,
-        // which is our next candidate for the beginning of hos rstart pulse
+        // which is our next candidate for the beginning of host start pulse
         mChannelData->AdvanceToAbsPosition( highTransition );
         mChannelData->AdvanceToNextEdge();
     }
+}
+
+bool DHTAnalyzer::CheckForPulse(double minDurationSec, double maxDurationSec)
+{
+    const U32 maxSamples = static_cast<U32>(maxDurationSec * mSampleRateHz);
+
+    if ( !mChannelData->WouldAdvancingCauseTransition( maxSamples ) )
+    {
+#if defined(DHT_LOGGING)
+        std::cout << "CheckForPulse: transition not found within time:" << maxDurationSec << std::endl;
+#endif
+        return false;
+    }
+
+    double pulseDurationSec = (mChannelData->GetSampleOfNextEdge() - mChannelData->GetSampleNumber()) / mSampleRateHz;
+    if (pulseDurationSec < minDurationSec)
+    {
+#if defined(DHT_LOGGING)
+        std::cout << "CheckForPulse: pulse duration too short:"
+                  << pulseDurationSec << ", need at least "
+                  << minDurationSec << std::endl;
+#endif
+        return false;
+    }
+
+    return true;
 }
 
 auto DHTAnalyzer::ReadDataBit() -> ReadResult
 {
     ReadResult result{BIT_LOW, false};
 
+    // low pulse always 50_usec
     assert(mChannelData->GetBitState() == BIT_LOW);
-    const double dataMaxLowSamples = 60_us * mSampleRateHz;
-
-    if ( !mChannelData->WouldAdvancingCauseTransition( dataMaxLowSamples ) )
-    {
-#if defined(DHT_LOGGING)
-        std::cout << "data bit low pulse too long" << std::endl;
-#endif
-        return result;
-    }
-
-    double dataLowTimeSec = (mChannelData->GetSampleOfNextEdge() - mChannelData->GetSampleNumber()) / mSampleRateHz;
-    if (dataLowTimeSec < 40_us)
-    {
-#if defined(DHT_LOGGING)
-        std::cout << "data bit low pulse too short" << std::endl;
-#endif
+    if (!CheckForPulse(40_us, 60_us)) {
         return result;
     }
 
     mChannelData->AdvanceToNextEdge();
-
-    const double dataMaxHighSamples = 80_us * mSampleRateHz;
-    if ( !mChannelData->WouldAdvancingCauseTransition( dataMaxHighSamples ) )
-    {
-#if defined(DHT_LOGGING)
-        std::cout << "data bit high pulse too long" << std::endl;
-#endif
+    if (!CheckForPulse(20_us, 80_us)) {
         return result;
     }
 
     double dataHighTimeSec = (mChannelData->GetSampleOfNextEdge() - mChannelData->GetSampleNumber()) / mSampleRateHz;
     mChannelData->AdvanceToNextEdge();
-
-    if (dataHighTimeSec < 20_us)
-    {
-#if defined(DHT_LOGGING)
-        std::cout << "data bit high pulse too short" << std::endl;
-#endif
-        return result;
-    }
 
     // time is ambiguously between the low duration and high duration
     if ((dataHighTimeSec > 40_us) && (dataHighTimeSec < 60_us))
@@ -157,79 +154,65 @@ void DHTAnalyzer::ReadPacket()
 {
     U64 packetBeginSample = mChannelData->GetSampleNumber();
 
-    const double hostMaxWaitSamples = 40_us * mSampleRateHz;
-    if ( !mChannelData->WouldAdvancingCauseTransition( hostMaxWaitSamples ) )
-    {
-        // we didn't see sensor start pulse within the require time, give up
-#if defined(DHT_LOGGING)
-        std::cout << "No sensor start pulse within 40 usec of host request" << std::endl;
-#endif
-        return;
-    }
+    mResults->CommitPacketAndStartNewPacket();
+    Frame hostBeginFrame;
+    hostBeginFrame.mStartingSampleInclusive = mLastHostStartPulse;
+    hostBeginFrame.mData2 = HOST_START_SIGNAL;
 
-    double hostWaitTimeSec = (mChannelData->GetSampleOfNextEdge() - mChannelData->GetSampleNumber() ) / mSampleRateHz;
-    if (hostWaitTimeSec < 20_us)
-    {
-        // sensor started replying too early
-        // should we accept this or bail out? Bailing out for now
+    // host waiting for sensor to start output
+    if (!CheckForPulse(20_us, 40_us)) {
 #if defined(DHT_LOGGING)
-        std::cout << "Sensor started response within 20 usec of host request" << std::endl;
+        std::cout << "Host wait pulse out of tolerance" << std::endl;
 #endif
         return;
     }
 
     // advance to the edge where the sensor pulls low
     mChannelData->AdvanceToNextEdge();
+    hostBeginFrame.mEndingSampleInclusive = mChannelData->GetSampleNumber() - 1;
+    mResults->AddFrame( hostBeginFrame );
 
     // measure sensor low and high start pulses - both should be 80_us approx
     // no tolerance value supplied in the data-sheet!
-    const double maxSensorStartSamples = 90_us * mSampleRateHz;
-    if ( !mChannelData->WouldAdvancingCauseTransition( maxSensorStartSamples ) )
-    {
+
+    Frame sensorResponseFrame;
+    sensorResponseFrame.mStartingSampleInclusive = mChannelData->GetSampleNumber();
+    sensorResponseFrame.mData2 = SENSOR_RESPONSE_SIGNAL;
+
+    if (!CheckForPulse(70_us, 90_us)) {
 #if defined(DHT_LOGGING)
-        std::cout << "Sensor start pulse longer than 80 usec" << std::endl;
+        std::cout << "Sensor start pulse out of tolerance" << std::endl;
 #endif
         return;
     }
 
-    double sensorStartLowTimeSec = (mChannelData->GetSampleOfNextEdge() - mChannelData->GetSampleNumber()) / mSampleRateHz;
-    if (sensorStartLowTimeSec < 70_us)
-    {
-#if defined(DHT_LOGGING)
-        std::cout << "Sensor start pulse too short:" << sensorStartLowTimeSec << std::endl;
-#endif
-        return;
-    }
-
-    // advance to the edge where the sensor pulls low, and repeat the preceeding
-    // steps
+    // advance to the edge where the sensor goes high
     mChannelData->AdvanceToNextEdge();
 
-    if ( !mChannelData->WouldAdvancingCauseTransition( maxSensorStartSamples ) )
-    {
+    if (!CheckForPulse(70_us, 90_us)) {
 #if defined(DHT_LOGGING)
-        std::cout << "Sensor preparation pulse longer than 80 usec" << std::endl;
+        std::cout << "Sensor wait pulse out of tolerance" << std::endl;
 #endif
         return;
     }
-
-    double sensorStartHighTimeSec = (mChannelData->GetSampleOfNextEdge() - mChannelData->GetSampleNumber()) / mSampleRateHz;
-    if (sensorStartHighTimeSec < 70_us)
-    {
-#if defined(DHT_LOGGING)
-        std::cout << "Sensor preparation pulse too short:" << sensorStartHighTimeSec << std::endl;
-#endif
-        return;
-    }
-
-    std::cout << "Sensor did sync to first data bit"  << std::endl;
 
     // advance to the first data bit
     mChannelData->AdvanceToNextEdge();
-    U64 rhData, tempData, checkSumBits;
+    sensorResponseFrame.mEndingSampleInclusive = mChannelData->GetSampleNumber() - 1;
+    mResults->AddFrame( sensorResponseFrame );
+
+// start with the data bits
+    Frame relHumidityFrame,
+            tempFrame,
+            checkSumFrame;
+    relHumidityFrame.mData2 = RH_DATA;
+    tempFrame.mData2 = TEMP_DATA;
+    checkSumFrame.mData2 = CHECKSUM_DATA;
+
+    relHumidityFrame.mStartingSampleInclusive = mChannelData->GetSampleNumber();
 
     DataBuilder rhBuilder;
-    rhBuilder.Reset(&rhData, AnalyzerEnums::MsbFirst, 16);
+    rhBuilder.Reset(&relHumidityFrame.mData1, AnalyzerEnums::MsbFirst, 16);
     for (int i=0; i<16; ++i) {
         auto r = ReadDataBit();
         if (!r.valid)
@@ -239,8 +222,11 @@ void DHTAnalyzer::ReadPacket()
         rhBuilder.AddBit(r.bit);
     }
 
+    relHumidityFrame.mEndingSampleInclusive = mChannelData->GetSampleNumber() - 1;
+    tempFrame.mStartingSampleInclusive = mChannelData->GetSampleNumber();
+
     DataBuilder tempBuilder;
-    tempBuilder.Reset(&tempData, AnalyzerEnums::MsbFirst, 16);
+    tempBuilder.Reset(&tempFrame.mData1, AnalyzerEnums::MsbFirst, 16);
     for (int i=0; i<16; ++i) {
         auto r = ReadDataBit();
         if (!r.valid)
@@ -251,8 +237,11 @@ void DHTAnalyzer::ReadPacket()
         tempBuilder.AddBit(r.bit);
     }
 
+    tempFrame.mEndingSampleInclusive = mChannelData->GetSampleNumber() - 1;
+    checkSumFrame.mStartingSampleInclusive = mChannelData->GetSampleNumber();
+
     DataBuilder checkSumBuilder;
-    checkSumBuilder.Reset(&checkSumBits, AnalyzerEnums::MsbFirst, 8);
+    checkSumBuilder.Reset(&checkSumFrame.mData1, AnalyzerEnums::MsbFirst, 8);
     for (int i=0; i<8; ++i) {
         auto r = ReadDataBit();
         if (!r.valid)
@@ -263,31 +252,26 @@ void DHTAnalyzer::ReadPacket()
         checkSumBuilder.AddBit(r.bit);
     }
 
-    U8 computedSum = ComputeCheckSum(rhData, tempData);
-    if (computedSum != checkSumBits)
+    checkSumFrame.mEndingSampleInclusive = mChannelData->GetSampleNumber() - 1;
+
+    U8 computedSum = ComputeCheckSum(relHumidityFrame.mData1, tempFrame.mData1);
+    if (computedSum != checkSumFrame.mData1)
     {
-        std::cerr << "checksum error" << std::endl;
-        return;
+        checkSumFrame.mFlags |= DISPLAY_AS_ERROR_FLAG;
+        // store the expected value in mData2, so it's available to the
+        // results code easily.
+        checkSumFrame.mData2 |= (computedSum << 8);
+    } else {
+        checkSumFrame.mFlags = 0;
     }
 
-    bool tempIsNegative = tempData & 0x8000;
-    tempData &= 0x7fff; // clear the sign bit
-
-#if defined(DHT_LOGGING)
-    std::cout << "Sensor did read packet"  << std::endl;
-    std::cout << "RH:" << rhData / 10.0 << std::endl;
-    std::cout << "temp " << tempData / 10.0 << " sign:" << tempIsNegative << std::endl;
-#endif
-
-    Frame frame;
-    frame.mFlags = 0;
-    frame.mStartingSampleInclusive = packetBeginSample;
-    frame.mEndingSampleInclusive = mChannelData->GetSampleNumber();
-    frame.mData1 = rhData;
-    frame.mData2 = tempData;
-    mResults->AddFrame( frame );
+    mResults->AddFrame(relHumidityFrame);
+    mResults->AddFrame(tempFrame);
+    mResults->AddFrame(checkSumFrame);
 
     mResults->CommitResults();
+    mResults->CommitPacketAndStartNewPacket();
+
     ReportProgress( mChannelData->GetSampleNumber() );
 }
 

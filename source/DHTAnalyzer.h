@@ -44,7 +44,9 @@ class ANALYZER_EXPORT DHTAnalyzer : public Analyzer2
         void ReadPacket();
 
         double mSampleRateHz = 0.0;
+        U64 mLastHostStartPulse = 0;
 
+        bool CheckForPulse(double minDurationSec, double maxDurationSec);
 };
 
 extern "C" {
