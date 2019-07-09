@@ -20,6 +20,10 @@ set(SOURCES source/DHTAnalyzer.cpp
             source/DHTAnalyzerSettings.h
             source/DHTAnalyzerResults.cpp
             source/DHTAnalyzerResults.h
+            source/DHTSimulationDataGenerator.cpp
+            source/DHTSimulationDataGenerator.h
+            source/DHTAnalyzerHelpers.cpp
+            source/DHTAnalyzerHelpers.h
 )
 
 add_library(DHTAnalyzer SHARED ${SOURCES})
